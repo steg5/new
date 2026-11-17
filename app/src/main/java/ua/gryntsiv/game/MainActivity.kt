@@ -1,6 +1,13 @@
 package ua.gryntsiv.game
 
 import android.os.Bundle
+import android.content.SharedPreferences
+import androidx.compose.ui.platform.LocalContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.content.pm.ActivityInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -32,6 +39,48 @@ private val BG = Color(0xFF10151D)
 private val PANEL = Color(0xFF1C2630)
 private val GOLD = Color(0xFFFFC857)
 private val TABLE = Color(0xFF155B43)
+
+
+data class GameHistoryEntry(
+    val timestamp: Long,
+    val round: Int,
+    val winner: String,
+    val results: List<String>
+)
+
+private fun loadGameHistory(prefs: SharedPreferences): List<GameHistoryEntry> {
+    return try {
+        val array = JSONArray(prefs.getString("entries", "[]"))
+        (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val resultArray = item.optJSONArray("results") ?: JSONArray()
+            GameHistoryEntry(
+                timestamp = item.optLong("timestamp"),
+                round = item.optInt("round", 1),
+                winner = item.optString("winner", "—"),
+                results = (0 until resultArray.length()).map {
+                    resultArray.optString(it)
+                }
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun encodeGameHistory(entries: List<GameHistoryEntry>): String {
+    val array = JSONArray()
+    entries.forEach { entry ->
+        array.put(
+            JSONObject()
+                .put("timestamp", entry.timestamp)
+                .put("round", entry.round)
+                .put("winner", entry.winner)
+                .put("results", JSONArray(entry.results))
+        )
+    }
+    return array.toString()
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,11 +114,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GryntsivApp() {
+    val context = LocalContext.current
+    val historyPrefs = remember {
+        context.getSharedPreferences("gryntsiv_history", android.content.Context.MODE_PRIVATE)
+    }
+    var history by remember { mutableStateOf(loadGameHistory(historyPrefs)) }
+    var recordedRoundKey by remember { mutableStateOf("") }
+
     var screen by remember { mutableStateOf("home") }
     var settings by remember { mutableStateOf(GameSettings()) }
     var showScores by remember { mutableStateOf(false) }
     val engine = remember { UnoEngine() }
     var game by remember { mutableStateOf<GameState?>(null) }
+
+    // Автоматичне збереження завершеної партії.
+    LaunchedEffect(game?.roundOver, game?.winnerId) {
+        val finished = game
+        if (finished != null && finished.roundOver) {
+            val key = "${finished.roundNumber}:${finished.winnerId}:${finished.players.map { it.name }}"
+            if (key != recordedRoundKey) {
+                val winner = finished.players.firstOrNull { it.id == finished.winnerId }?.name ?: "—"
+                val entry = GameHistoryEntry(
+                    timestamp = System.currentTimeMillis(),
+                    round = finished.roundNumber,
+                    winner = winner,
+                    results = finished.players.map { player ->
+                        "${player.name}: ${finished.roundScores[player.id] ?: 0} очок (разом ${player.totalPoints})"
+                    }
+                )
+                history = (listOf(entry) + history).take(100)
+                historyPrefs.edit()
+                    .putString("entries", encodeGameHistory(history))
+                    .apply()
+                recordedRoundKey = key
+            }
+        }
+    }
 
     // Автоматичний хід ботів.
     LaunchedEffect(game?.currentPlayerId, game?.lastAction, game?.roundOver) {
@@ -106,6 +186,7 @@ fun GryntsivApp() {
                 "create" -> CreateRoomScreen(
                     onBack = { screen = "home" },
                     onStart = { name, bots ->
+                        recordedRoundKey = ""
                         game = engine.newGame(name, bots)
                         screen = "game"
                     }
@@ -116,7 +197,14 @@ fun GryntsivApp() {
                     { settings = it },
                     { screen = "home" }
                 )
-                "history" -> HistoryScreen(onBack = { screen = "home" })
+                "history" -> HistoryScreen(
+                    entries = history,
+                    onClear = {
+                        history = emptyList()
+                        historyPrefs.edit().remove("entries").apply()
+                    },
+                    onBack = { screen = "home" }
+                )
                 "game" -> GameScreen(
                     state = game,
                     settings = settings,
@@ -340,15 +428,85 @@ fun SettingsScreen(
 }
 
 @Composable
-fun HistoryScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        TextButton(onClick = onBack) { Text("← Назад") }
-        Text("Історія ігор", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(15.dp))
+fun HistoryScreen(
+    entries: List<GameHistoryEntry>,
+    onClear: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onBack) { Text("← Назад") }
+            if (entries.isNotEmpty()) {
+                TextButton(onClick = onClear) {
+                    Text("Очистити історію", color = Color(0xFFFF8A80))
+                }
+            }
+        }
+
+        Text("ІСТОРІЯ ІГОР", color = GOLD, fontSize = 25.sp, fontWeight = FontWeight.Black)
         Text(
-            "Збереження завершених партій та історія результатів ще потребують реалізації.",
-            color = Color.LightGray
+            "Завершені партії зберігаються на цьому пристрої.",
+            color = Color.LightGray,
+            fontSize = 13.sp
         )
+
+        if (entries.isEmpty()) {
+            Surface(
+                color = PANEL,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Поки що порожньо", color = GOLD, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Заверши першу партію, і її результат з’явиться тут.",
+                        color = Color.LightGray,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            entries.forEachIndexed { index, entry ->
+                Surface(
+                    color = PANEL,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            "#${entries.size - index}  •  " +
+                                SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault())
+                                    .format(Date(entry.timestamp)),
+                            color = Color.LightGray,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            "Переможець: ${entry.winner}",
+                            color = GOLD,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text("Раунд ${entry.round}", color = Color.LightGray, fontSize = 11.sp)
+                        entry.results.forEach { result ->
+                            Text(result, color = Color.White, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -364,250 +522,229 @@ fun GameScreen(
     if (state == null) return
 
     var colorDialog by remember { mutableStateOf<Card?>(null) }
-    var reaction by remember { mutableStateOf("") }
 
     val human = state.players.firstOrNull()
     val current = state.players.firstOrNull { it.id == state.currentPlayerId }
     val isMyTurn = current?.id == human?.id
-    val playable = remember(state, human) {
-        if (human != null) {
-            state.players.firstOrNull { it.id == human.id }?.hand
-                ?.filter { card ->
-                    // Перевірка доступності через стан рушія виконується під час натискання.
-                    true
-                }.orEmpty()
-        } else emptyList()
-    }
 
-    Column(
-        Modifier.fillMaxSize().background(BG).padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        // Верхня панель
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("GRYNTSIV", color = GOLD, fontWeight = FontWeight.Black, fontSize = 19.sp)
-                Text("РАУНД ${state.roundNumber}", color = Color.Gray, fontSize = 10.sp)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    if (state.roundOver) "РАУНД ЗАВЕРШЕНО"
-                    else if (isMyTurn) "ТВІЙ ХІД" else "ХІД: ${current?.name ?: "—"}",
-                    color = if (isMyTurn) GOLD else Color.LightGray,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-                TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-                    Text("Вийти", color = Color.LightGray, fontSize = 12.sp)
-                }
-            }
-        }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val centerCardHeight = if (maxHeight < 175.dp) 46.dp else 58.dp
+        val centerCardWidth = centerCardHeight * 0.68f
+        val handCardHeight = centerCardHeight
+        val handCardWidth = handCardHeight * 0.68f
 
-        // Суперники
-        Row(
-            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        Column(
+            Modifier.fillMaxSize()
+                .background(BG)
+                .padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            state.players.drop(1).forEach { player ->
-                val active = player.id == state.currentPlayerId
-                Surface(
-                    color = if (active) Color(0xFF39483E) else PANEL,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                        .border(
-                            if (active) 1.dp else 0.dp,
-                            if (active) GOLD else Color.Transparent,
-                            RoundedCornerShape(12.dp)
-                        )
-                ) {
-                    Column(
-                        Modifier.padding(vertical = 4.dp, horizontal = 3.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(if (player.isBot) "🤖" else "👤", fontSize = 19.sp)
-                        Text(
-                            player.name,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Text("${player.hand.size} карт", color = Color.LightGray, fontSize = 9.sp)
-                    }
-                }
-            }
-        }
-
-        // Ігровий стіл
-        Box(
-            Modifier.fillMaxWidth().weight(1f)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF1C7555), TABLE, Color(0xFF104633))
-                    ),
-                    RoundedCornerShape(28.dp)
-                )
-                .border(2.dp, Color(0xFF397C5D), RoundedCornerShape(28.dp))
-                .padding(12.dp)
-        ) {
-            Column(
-                Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+            // Верхня панель
+            Row(
+                Modifier.fillMaxWidth().height(24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("GRYNTSIV", color = GOLD, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("РАУНД ${state.roundNumber}", color = Color.Gray, fontSize = 9.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (state.clockwise) "↻" else "↺",
-                        fontSize = 26.sp,
-                        color = Color.White
-                    )
-                    Text(
-                        "КАРТ: ${state.drawPile.size}",
-                        color = Color.White.copy(alpha = 0.8f),
+                        if (state.roundOver) "ЗАВЕРШЕНО"
+                        else if (isMyTurn) "ТВІЙ ХІД" else "ХІД: ${current?.name ?: "—"}",
+                        color = if (isMyTurn) GOLD else Color.LightGray,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 10.sp
                     )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = onBack,
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)
+                    ) {
+                        Text("Вийти", color = Color.LightGray, fontSize = 10.sp)
+                    }
                 }
+            }
 
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ВЗЯТИ", color = Color.White, fontSize = 9.sp)
-                        Box(Modifier.clickable(enabled = isMyTurn && !state.roundOver, onClick = onDraw)) {
-                            CardBack(width = 54.dp, height = 80.dp)
+            // Компактна панель суперників
+            Row(
+                Modifier.fillMaxWidth().height(27.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                state.players.drop(1).forEach { player ->
+                    val active = player.id == state.currentPlayerId
+                    Surface(
+                        color = if (active) Color(0xFF39483E) else PANEL,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Row(
+                            Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(if (player.isBot) "🤖" else "👤", fontSize = 12.sp)
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "${player.name} • ${player.hand.size}",
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                maxLines = 1
+                            )
                         }
                     }
-                    Spacer(Modifier.width(24.dp))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("СТІЛ", color = Color.White, fontSize = 9.sp)
-                        val top = state.discardPile.lastOrNull()
-                        if (top != null) {
-                            CardFace(top, settings.cardTheme, 54.dp, 80.dp)
-                        } else {
-                            Box(
-                                Modifier.size(54.dp, 80.dp)
-                                    .border(1.dp, Color.White, RoundedCornerShape(12.dp))
+                }
+            }
+
+            // Стіл ліворуч, рука гравця праворуч
+            Row(
+                Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Box(
+                    Modifier.weight(0.9f).fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF1C7555), TABLE, Color(0xFF104633))
+                            ),
+                            RoundedCornerShape(16.dp)
+                        )
+                        .border(1.dp, Color(0xFF397C5D), RoundedCornerShape(16.dp))
+                        .padding(4.dp)
+                ) {
+                    Column(
+                        Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(if (state.clockwise) "↻" else "↺", color = Color.White, fontSize = 17.sp)
+                            Text("КАРТ: ${state.drawPile.size}", color = Color.White, fontSize = 8.sp)
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("ВЗЯТИ", color = Color.White, fontSize = 8.sp)
+                                Box(Modifier.clickable(
+                                    enabled = isMyTurn && !state.roundOver,
+                                    onClick = onDraw
+                                )) {
+                                    CardBack(width = centerCardWidth, height = centerCardHeight)
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("СТІЛ", color = Color.White, fontSize = 8.sp)
+                                val top = state.discardPile.lastOrNull()
+                                if (top != null) {
+                                    CardFace(top, settings.cardTheme, centerCardWidth, centerCardHeight)
+                                } else {
+                                    Box(
+                                        Modifier.size(centerCardWidth, centerCardHeight)
+                                            .border(1.dp, Color.White, RoundedCornerShape(8.dp))
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (state.pendingDraw > 0) {
+                                Text(
+                                    "ШТРАФ +${state.pendingDraw}",
+                                    color = Color(0xFFFFD56A),
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 10.sp
+                                )
+                            } else if (state.pendingType == CardType.SKIP) {
+                                Text("ПРОПУСК", color = Color.White, fontSize = 9.sp)
+                            }
+                            Text(
+                                state.lastAction,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 8.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2
                             )
                         }
                     }
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (state.pendingDraw > 0) {
-                        Text(
-                            "ШТРАФ: +${state.pendingDraw}",
-                            color = Color(0xFFFFD56A),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 17.sp
-                        )
-                    } else if (state.pendingType == CardType.SKIP) {
-                        Text("ПРОПУСК ХОДУ", color = Color.White, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text("GRYNTSIV", color = Color.White.copy(alpha = 0.25f), fontSize = 12.sp)
+                Column(
+                    Modifier.weight(1.35f).fillMaxHeight()
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().height(18.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("ТВОЇ КАРТИ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text("${human?.hand?.size ?: 0}", color = Color.LightGray, fontSize = 10.sp)
                     }
-                    Text(
-                        state.lastAction,
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 10.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2
-                    )
-                }
-            }
-        }
 
-        // Реакції
-        Row(
-            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            listOf("😂", "🔥", "😎", "👏", "😮", "😡", "❤️", "🤔", "🙈", "💪", "🎉", "😭")
-                .forEach { emoji ->
-                    Text(
-                        emoji,
-                        fontSize = 15.sp,
-                        modifier = Modifier.clickable { reaction = emoji }.padding(1.dp)
-                    )
-                }
-        }
-        if (reaction.isNotEmpty()) {
-            Text(
-                "Твоя реакція: $reaction",
-                color = GOLD,
-                fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-        }
-
-        // Рука гравця
-        Row(
-            Modifier.fillMaxWidth().padding(top = 1.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("ТВОЇ КАРТИ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text("${human?.hand?.size ?: 0} карт", color = Color.LightGray, fontSize = 11.sp)
-        }
-
-        LazyRow(
-            Modifier.fillMaxWidth().height(82.dp),
-            horizontalArrangement = Arrangement.spacedBy((-9).dp),
-            contentPadding = PaddingValues(horizontal = 4.dp)
-        ) {
-            items(human?.hand ?: emptyList(), key = { it.id }) { card ->
-                Box(
-                    Modifier.clickable(enabled = isMyTurn && !state.roundOver) {
-                        if (card.type == CardType.WILD || card.type == CardType.DRAW_FOUR) {
-                            colorDialog = card
-                        } else {
-                            onPlay(card, null)
+                    LazyRow(
+                        Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy((-7).dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(human?.hand ?: emptyList(), key = { it.id }) { card ->
+                            Box(
+                                Modifier.clickable(enabled = isMyTurn && !state.roundOver) {
+                                    if (card.type == CardType.WILD || card.type == CardType.DRAW_FOUR) {
+                                        colorDialog = card
+                                    } else {
+                                        onPlay(card, null)
+                                    }
+                                }
+                            ) {
+                                CardFace(card, settings.cardTheme, handCardWidth, handCardHeight)
+                            }
                         }
                     }
-                ) {
-                    CardFace(card, settings.cardTheme, 52.dp, 80.dp)
                 }
             }
-        }
 
-        // Кнопки керування ходом
-        Row(
-            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            Button(
-                onClick = onDraw,
-                enabled = isMyTurn && !state.roundOver,
-                modifier = Modifier.weight(1f).height(36.dp),
-                shape = RoundedCornerShape(13.dp)
+            // Керування ходом
+            Row(
+                Modifier.fillMaxWidth().height(30.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                Text(
-                    if (state.pendingDraw > 0) "Взяти +${state.pendingDraw}"
-                    else "Добрати карту",
-                    fontSize = 12.sp
-                )
-            }
-            OutlinedButton(
-                onClick = onPass,
-                enabled = isMyTurn && !state.roundOver &&
-                    (state.hasDrawnThisTurn || state.pendingDraw > 0 ||
-                        state.pendingType == CardType.SKIP),
-                modifier = Modifier.weight(0.75f).height(36.dp),
-                shape = RoundedCornerShape(13.dp)
-            ) {
-                Text("ПАС", fontSize = 12.sp)
+                Button(
+                    onClick = onDraw,
+                    enabled = isMyTurn && !state.roundOver,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = PaddingValues(2.dp),
+                    shape = RoundedCornerShape(9.dp)
+                ) {
+                    Text(
+                        if (state.pendingDraw > 0) "Взяти +${state.pendingDraw}" else "Добрати карту",
+                        fontSize = 10.sp
+                    )
+                }
+                OutlinedButton(
+                    onClick = onPass,
+                    enabled = isMyTurn && !state.roundOver &&
+                        (state.hasDrawnThisTurn || state.pendingDraw > 0 ||
+                            state.pendingType == CardType.SKIP),
+                    modifier = Modifier.width(85.dp).fillMaxHeight(),
+                    contentPadding = PaddingValues(2.dp),
+                    shape = RoundedCornerShape(9.dp)
+                ) {
+                    Text("ПАС", fontSize = 10.sp)
+                }
             }
         }
     }
 
-    // Вибір кольору для дикої карти
+    // Вибір кольору дикої карти
     colorDialog?.let { card ->
         AlertDialog(
             onDismissRequest = { colorDialog = null },
@@ -620,13 +757,12 @@ fun GameScreen(
                         CardColor.GREEN to "ЗЕЛЕНИЙ",
                         CardColor.YELLOW to "ЖОВТИЙ"
                     ).forEach { (color, label) ->
-                        val c = cardColor(color, settings.cardTheme)
                         Surface(
                             onClick = {
                                 colorDialog = null
                                 onPlay(card, color)
                             },
-                            color = c,
+                            color = cardColor(color, settings.cardTheme),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -658,7 +794,7 @@ fun GameScreen(
                     Text("Переможець: ${winner?.name ?: "—"}", fontWeight = FontWeight.Bold)
                     state.players.forEach { player ->
                         Text(
-                            "${player.name}: +${state.roundScores[player.id] ?: 0} очок  •  Разом: ${player.totalPoints}"
+                            "${player.name}: +${state.roundScores[player.id] ?: 0} очок • Разом: ${player.totalPoints}"
                         )
                     }
                 }
