@@ -16,6 +16,22 @@ android {
         versionName = "0.2.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("gryntsiv-release.jks")
+            storePassword = System.getenv("GRYNTSIV_KEYSTORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("GRYNTSIV_KEY_ALIAS") ?: "gryntsiv"
+            keyPassword = System.getenv("GRYNTSIV_KEY_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

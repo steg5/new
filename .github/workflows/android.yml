@@ -1,26 +1,61 @@
 name: Android CI
+
 on:
   push:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+
+      - name: Restore signing key
+        if: github.event_name != 'pull_request'
+        env:
+          GRYNTSIV_KEYSTORE: ${{ secrets.GRYNTSIV_KEYSTORE }}
+        run: |
+          echo "$GRYNTSIV_KEYSTORE" | base64 --decode > app/gryntsiv-release.jks
+          test -s app/gryntsiv-release.jks
+
+      - name: Build Debug and signed Release APK
+        if: github.event_name != 'pull_request'
+        env:
+          GRYNTSIV_KEYSTORE_PASSWORD: ${{ secrets.GRYNTSIV_KEYSTORE_PASSWORD }}
+          GRYNTSIV_KEY_ALIAS: ${{ secrets.GRYNTSIV_KEY_ALIAS }}
+          GRYNTSIV_KEY_PASSWORD: ${{ secrets.GRYNTSIV_KEY_PASSWORD }}
+        run: gradle assembleDebug assembleRelease
+
+      - name: Build Debug APK for pull requests
+        if: github.event_name == 'pull_request'
         run: gradle assembleDebug
-      - name: Upload APK
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: GRYNTSIV-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload signed Release APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GRYNTSIV-release
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f app/gryntsiv-release.jks
