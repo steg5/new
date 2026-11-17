@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -160,45 +161,60 @@ fun HomeScreen(
     onHistory: () -> Unit,
     onScores: () -> Unit
 ) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 25.dp, vertical = 22.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Spacer(Modifier.height(45.dp))
-        Text("GRYNTSIV", fontSize = 42.sp, fontWeight = FontWeight.Black, color = GOLD)
-        Text("КАРТКОВА ГРА", color = Color.LightGray, letterSpacing = 4.sp, fontSize = 12.sp)
-        Spacer(Modifier.height(38.dp))
-
-        Box(
-            Modifier.fillMaxWidth().height(145.dp)
-                .background(
-                    Brush.linearGradient(listOf(Color(0xFF263B38), Color(0xFF17231F))),
-                    RoundedCornerShape(22.dp)
-                ),
-            contentAlignment = Alignment.Center
+        Column(
+            Modifier.weight(0.9f).fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceEvenly
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-17).dp)) {
-                listOf(CardColor.RED, CardColor.BLUE, CardColor.GREEN, CardColor.YELLOW)
-                    .forEachIndexed { i, c ->
-                        Box(Modifier.rotate(if (i % 2 == 0) -8f else 8f)) {
-                            CardBack(color = c, width = 65.dp, height = 100.dp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("GRYNTSIV", fontSize = 38.sp, fontWeight = FontWeight.Black, color = GOLD)
+                Text("КАРТКОВА ГРА", color = Color.LightGray, letterSpacing = 4.sp, fontSize = 11.sp)
+            }
+            Box(
+                Modifier.fillMaxWidth().weight(1f).padding(vertical = 8.dp)
+                    .background(
+                        Brush.linearGradient(listOf(Color(0xFF263B38), Color(0xFF17231F))),
+                        RoundedCornerShape(22.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy((-17).dp)) {
+                    listOf(CardColor.RED, CardColor.BLUE, CardColor.GREEN, CardColor.YELLOW)
+                        .forEachIndexed { i, c ->
+                            Box(Modifier.rotate(if (i % 2 == 0) -8f else 8f)) {
+                                CardBack(color = c, width = 52.dp, height = 80.dp)
+                            }
                         }
-                    }
+                }
+            }
+            Text("GRYNTSIV  •  0.3.0", color = Color.Gray, fontSize = 10.sp)
+        }
+        Column(
+            Modifier.weight(1.2f).fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MainMenuButton("НОВА ГРА", "Створити локальну партію", onCreate, true,
+                    Modifier.weight(1f).fillMaxHeight())
+                MainMenuButton("ПРИЄДНАТИСЯ", "Домашня Wi-Fi мережа", onJoin,
+                    modifier = Modifier.weight(1f).fillMaxHeight())
+            }
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MainMenuButton("РЕЗУЛЬТАТИ", "Очки гравців", onScores,
+                    modifier = Modifier.weight(1f).fillMaxHeight())
+                MainMenuButton("ІСТОРІЯ", "Попередні партії", onHistory,
+                    modifier = Modifier.weight(1f).fillMaxHeight())
+            }
+            Row(Modifier.weight(1f)) {
+                MainMenuButton("НАЛАШТУВАННЯ", "Теми карт та правила", onSettings,
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight())
             }
         }
-
-        Spacer(Modifier.height(30.dp))
-        MainMenuButton("НОВА ГРА", "Створити локальну партію", onCreate, true)
-        Spacer(Modifier.height(12.dp))
-        MainMenuButton("ПРИЄДНАТИСЯ", "Грати через домашню Wi-Fi мережу", onJoin)
-        Spacer(Modifier.height(12.dp))
-        MainMenuButton("РЕЗУЛЬТАТИ", "Очки гравців", onScores)
-        Spacer(Modifier.height(12.dp))
-        MainMenuButton("ІСТОРІЯ", "Попередні партії", onHistory)
-        Spacer(Modifier.height(12.dp))
-        MainMenuButton("НАЛАШТУВАННЯ", "Теми карт та правила", onSettings)
-        Spacer(Modifier.weight(1f))
-        Text("GRYNTSIV  •  0.3.0", color = Color.Gray, fontSize = 11.sp)
     }
 }
 
@@ -207,26 +223,27 @@ fun MainMenuButton(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
-    primary: Boolean = false
+    primary: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         onClick = onClick,
         color = if (primary) GOLD else PANEL,
         shape = RoundedCornerShape(15.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
     ) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 13.dp)) {
-            Text(
-                title,
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(title,
                 color = if (primary) Color.Black else Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-            Text(
-                subtitle,
+                fontSize = 14.sp)
+            Text(subtitle,
                 color = if (primary) Color(0xFF51401C) else Color.LightGray,
-                fontSize = 11.sp
-            )
+                fontSize = 10.sp,
+                maxLines = 2)
         }
     }
 }
@@ -237,7 +254,7 @@ fun CreateRoomScreen(onBack: () -> Unit, onStart: (String, Int) -> Unit) {
     var participants by remember { mutableIntStateOf(4) }
 
     Column(
-        Modifier.fillMaxSize().padding(22.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(17.dp)
     ) {
         TextButton(onClick = onBack) { Text("← Назад") }
@@ -275,7 +292,7 @@ fun CreateRoomScreen(onBack: () -> Unit, onStart: (String, Int) -> Unit) {
 @Composable
 fun JoinRoomScreen(onBack: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(22.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(15.dp)
     ) {
         TextButton(onClick = onBack) { Text("← Назад") }
@@ -294,7 +311,7 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxSize().padding(22.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         TextButton(onClick = onBack) { Text("← Назад") }
@@ -324,7 +341,7 @@ fun SettingsScreen(
 
 @Composable
 fun HistoryScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(22.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         TextButton(onClick = onBack) { Text("← Назад") }
         Text("Історія ігор", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(15.dp))
@@ -363,7 +380,7 @@ fun GameScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(BG).padding(horizontal = 12.dp, vertical = 8.dp)
+        Modifier.fillMaxSize().background(BG).padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         // Верхня панель
         Row(
@@ -391,7 +408,7 @@ fun GameScreen(
 
         // Суперники
         Row(
-            Modifier.fillMaxWidth().padding(top = 5.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             state.players.drop(1).forEach { player ->
@@ -407,7 +424,7 @@ fun GameScreen(
                         )
                 ) {
                     Column(
-                        Modifier.padding(vertical = 8.dp, horizontal = 3.dp),
+                        Modifier.padding(vertical = 4.dp, horizontal = 3.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(if (player.isBot) "🤖" else "👤", fontSize = 19.sp)
@@ -465,7 +482,7 @@ fun GameScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("ВЗЯТИ", color = Color.White, fontSize = 9.sp)
                         Box(Modifier.clickable(enabled = isMyTurn && !state.roundOver, onClick = onDraw)) {
-                            CardBack(width = 76.dp, height = 112.dp)
+                            CardBack(width = 54.dp, height = 80.dp)
                         }
                     }
                     Spacer(Modifier.width(24.dp))
@@ -473,10 +490,10 @@ fun GameScreen(
                         Text("СТІЛ", color = Color.White, fontSize = 9.sp)
                         val top = state.discardPile.lastOrNull()
                         if (top != null) {
-                            CardFace(top, settings.cardTheme, 76.dp, 112.dp)
+                            CardFace(top, settings.cardTheme, 54.dp, 80.dp)
                         } else {
                             Box(
-                                Modifier.size(76.dp, 112.dp)
+                                Modifier.size(54.dp, 80.dp)
                                     .border(1.dp, Color.White, RoundedCornerShape(12.dp))
                             )
                         }
@@ -509,15 +526,15 @@ fun GameScreen(
 
         // Реакції
         Row(
-            Modifier.fillMaxWidth().padding(top = 7.dp, bottom = 5.dp),
+            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             listOf("😂", "🔥", "😎", "👏", "😮", "😡", "❤️", "🤔", "🙈", "💪", "🎉", "😭")
                 .forEach { emoji ->
                     Text(
                         emoji,
-                        fontSize = 19.sp,
-                        modifier = Modifier.clickable { reaction = emoji }.padding(2.dp)
+                        fontSize = 15.sp,
+                        modifier = Modifier.clickable { reaction = emoji }.padding(1.dp)
                     )
                 }
         }
@@ -532,7 +549,7 @@ fun GameScreen(
 
         // Рука гравця
         Row(
-            Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 5.dp),
+            Modifier.fillMaxWidth().padding(top = 1.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -541,8 +558,8 @@ fun GameScreen(
         }
 
         LazyRow(
-            Modifier.fillMaxWidth().height(125.dp),
-            horizontalArrangement = Arrangement.spacedBy((-12).dp),
+            Modifier.fillMaxWidth().height(82.dp),
+            horizontalArrangement = Arrangement.spacedBy((-9).dp),
             contentPadding = PaddingValues(horizontal = 4.dp)
         ) {
             items(human?.hand ?: emptyList(), key = { it.id }) { card ->
@@ -555,20 +572,20 @@ fun GameScreen(
                         }
                     }
                 ) {
-                    CardFace(card, settings.cardTheme, 73.dp, 112.dp)
+                    CardFace(card, settings.cardTheme, 52.dp, 80.dp)
                 }
             }
         }
 
         // Кнопки керування ходом
         Row(
-            Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 5.dp),
+            Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
             Button(
                 onClick = onDraw,
                 enabled = isMyTurn && !state.roundOver,
-                modifier = Modifier.weight(1f).height(48.dp),
+                modifier = Modifier.weight(1f).height(36.dp),
                 shape = RoundedCornerShape(13.dp)
             ) {
                 Text(
@@ -582,7 +599,7 @@ fun GameScreen(
                 enabled = isMyTurn && !state.roundOver &&
                     (state.hasDrawnThisTurn || state.pendingDraw > 0 ||
                         state.pendingType == CardType.SKIP),
-                modifier = Modifier.weight(0.75f).height(48.dp),
+                modifier = Modifier.weight(0.75f).height(36.dp),
                 shape = RoundedCornerShape(13.dp)
             ) {
                 Text("ПАС", fontSize = 12.sp)
