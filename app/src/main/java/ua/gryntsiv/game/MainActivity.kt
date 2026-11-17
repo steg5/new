@@ -774,3 +774,5 @@ fun cardColor(color: CardColor, theme: String): Color {
             CardColor.YELLOW -> Color(0xFFFFC928)
         }
     }
+
+}
